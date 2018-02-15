@@ -1,0 +1,86 @@
+import numpy as np
+from cvxpy import Variable, Problem, Minimize
+from cvxpy.atoms import *
+from problems import Problems
+
+def compare_results(probs, obj_admm, obj_comb, x_admm, x_comb):
+	N = len(probs.variables())
+	for i in range(N):
+		print "\nADMM Solution:\n", x_admm[i]
+		print "Base Solution:\n", x_comb[i]
+		print "MSE: ", np.mean(np.square(x_admm[i] - x_comb[i])), "\n"
+	print "ADMM Objective: %f" % obj_admm
+	print "Base Objective: %f" % obj_comb
+	print "Elapsed Time: %f" % probs.solver_stats
+
+def basic_test():
+	np.random.seed(1)
+	m = 100
+	n = 10
+	max_iter = 10
+	x = Variable(n)
+	y = Variable(n/2)
+
+	# Problem data.
+	alpha = 0.5
+	A = np.random.randn(m*n).reshape(m,n)
+	xtrue = np.random.randn(n)
+	b = A.dot(xtrue) + np.random.randn(m)
+
+	# List of all the problems with objective f_i.
+	p_list = [Problem(Minimize(sum_squares(A*x-b)), [norm(x,2) <= 1]),
+			  Problem(Minimize((1-alpha)*sum_squares(y)/2))]
+	probs = Problems(p_list)
+	N = len(p_list)   # Number of problems.
+	probs.pretty_vars()
+	
+	# Solve with consensus ADMM.
+	obj_admm = probs.solve(method = "consensus", rho_init = N*[1.0], \
+						   max_iter = max_iter, spectral = True)
+	x_admm = [x.value for x in probs.variables()]
+
+	# Solve combined problem.
+	obj_comb = probs.solve(method = "combined")
+	x_comb = [x.value for x in probs.variables()]
+
+	# Compare results.
+	compare_results(probs, obj_admm, obj_comb, x_admm, x_comb)
+
+def ols_test():
+	np.random.seed(1)
+	N = 2
+	m = N*100
+	n = 10
+	max_iter = 85
+	x = Variable(n)
+	
+	# Problem data.
+	A = np.random.randn(m*n).reshape(m,n)
+	xtrue = np.random.randn(n)
+	b = A.dot(xtrue) + np.random.randn(m)
+	A_split = np.split(A, N)
+	b_split = np.split(b, N)
+	
+	# List of all the problems with objective f_i.
+	p_list = []
+	for A_sub, b_sub in zip(A_split, b_split):
+		p_list += [Problem(Minimize(sum_squares(A_sub*x-b_sub)))]
+		
+	probs = Problems(p_list)
+	probs.pretty_vars()
+	
+	# Solve with consensus ADMM.
+	obj_admm = probs.solve(method = "consensus", rho_init = N*[1.0], \
+						   max_iter = max_iter, spectral = True)
+	x_admm = [x.value for x in probs.variables()]
+	
+	# Solve combined problem.
+	# obj_comb = Problem(Minimize(sum_squares(A*x-b))).solve()
+	obj_comb = probs.solve(method = "combined")
+	x_comb = [x.value for x in probs.variables()]
+	
+	# Compare results.
+	compare_results(probs, obj_admm, obj_comb, x_admm, x_comb)
+
+# basic_test()
+ols_test()

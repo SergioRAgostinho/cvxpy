@@ -17,6 +17,7 @@ You should have received a copy of the GNU General Public License
 along with CVXPY.  If not, see <http://www.gnu.org/licenses/>.
 """
 
+import cvxpy.settings as s
 from cvxpy.problems.problem import Problem, Minimize
 from cvxpy.expressions.constants import Parameter
 from cvxpy.atoms import sum_squares
@@ -133,8 +134,8 @@ def step_spec(rho, k, dx, dxbar, du, duhat, eps = 0.2, C = 1e10):
 	# Use old step size if unable to solve LS problem/correlations.
 	if sum(dx**2) == 0 or sum(dxbar**2) == 0 or \
 	   sum(du**2) == 0 or sum(duhat**2) == 0:
-	   return rho
-	
+		   return rho
+
 	# Compute spectral step size.
 	a_hat = step_ls(dx, duhat)
 	b_hat = step_ls(dxbar, du)
@@ -148,8 +149,9 @@ def step_spec(rho, k, dx, dxbar, du, duhat, eps = 0.2, C = 1e10):
 	rho_hat = step_safe(rho, a_hat, b_hat, a_cor, b_cor, eps)
 	return max(min(rho_hat, scale*rho), rho/scale)
 
-def run_worker(pipe, p, rho_init, **kwargs):
-	# Step size parameters.
+def run_worker(pipe, p, rho_init, *args, **kwargs):
+	# Spectral step size parameters.
+	spectral = kwargs.pop("spectral", False)
 	Tf = kwargs.pop("Tf", 2)
 	eps = kwargs.pop("eps", 0.2)
 	C = kwargs.pop("C", 1e10)
@@ -175,13 +177,13 @@ def run_worker(pipe, p, rho_init, **kwargs):
 	
 	# ADMM loop.
 	while True:
-		prox.solve(**kwargs)
+		prox.solve(*args, **kwargs)
 		xvals = {}
 		for xvar in prox.variables():
 			xvals[xvar.id] = xvar.value
-		pipe.send(xvals)
+		pipe.send((prox.status, xvals))
 		
-		# Update u += x - x_bar.
+		# Update u += rho*(x - x_bar).
 		xbars, i = pipe.recv()
 		v_flat = {"x": [], "xbar": [], "u": [], "uhat": []}
 		for key in v.keys():
@@ -195,7 +197,7 @@ def run_worker(pipe, p, rho_init, **kwargs):
 			u_hat = u_old + rho*(xbar_old - v[key]["u"])
 			v_flat["uhat"] += [np.asarray(u_hat.value).reshape(-1)]
 		
-		if i % Tf == 1:
+		if spectral and i % Tf == 1:
 			# Collect and flatten variables.
 			for key in v.keys():
 				v_flat["x"] += [np.asarray(v[key]["x"].value).reshape(-1)]
@@ -204,10 +206,10 @@ def run_worker(pipe, p, rho_init, **kwargs):
 			
 			for key in v_flat.keys():
 				v_flat[key] = np.concatenate(v_flat[key])
-			
+
 			# Calculate change from old iterate.
 			dx = v_flat["x"] - v_old["x"]
-			dxbar = -v_flat["xbar"] + v_flat["xbar"]
+			dxbar = -v_flat["xbar"] + v_old["xbar"]
 			du = v_flat["u"] - v_old["u"]
 			duhat = v_flat["uhat"] - v_old["uhat"]
 			
@@ -218,7 +220,7 @@ def run_worker(pipe, p, rho_init, **kwargs):
 			for key in v_flat.keys():
 				v_old[key] = v_flat[key]
 
-def consensus(p_list, *args, **kwargs):   # TODO: Pass *args to prox solver?
+def consensus(p_list, *args, **kwargs):
 	N = len(p_list)   # Number of problems.
 	max_iter = kwargs.pop("max_iter", 100)
 	rho_init = kwargs.pop("rho_init", N*[1.0])
@@ -229,7 +231,7 @@ def consensus(p_list, *args, **kwargs):   # TODO: Pass *args to prox solver?
 	for i in range(N):
 		local, remote = Pipe()
 		pipes += [local]
-		procs += [Process(target = run_worker, args = (remote, p_list[i], rho_init[i]), kwargs = kwargs)]
+		procs += [Process(target = run_worker, args = (remote, p_list[i], rho_init[i]) + args, kwargs = kwargs)]
 		procs[-1].start()
 
 	# ADMM loop.
@@ -238,10 +240,13 @@ def consensus(p_list, *args, **kwargs):   # TODO: Pass *args to prox solver?
 		# Gather and average x_i.
 		xbars = defaultdict(float)
 		xcnts = defaultdict(int)
-		xvals = [pipe.recv() for pipe in pipes]
+		prox_res = [pipe.recv() for pipe in pipes]
 	
-		for d in xvals:
-			for key, value in d.items():
+		for status, xvals in prox_res:
+			if status in s.INF_OR_UNB:
+				raise RuntimeError("Proximal problem is infeasible or unbounded")
+			
+			for key, value in xvals.items():
 				xbars[key] += value
 				++xcnts[key]
 	

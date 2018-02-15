@@ -17,6 +17,7 @@ You should have received a copy of the GNU General Public License
 along with CVXPY.  If not, see <http://www.gnu.org/licenses/>.
 """
 
+import numpy as np
 import cvxpy.utilities as u
 from cvxpy.problems.problem import Problem, Minimize
 from collections import defaultdict
@@ -49,6 +50,7 @@ class Problems(object):
 		self._solver_stats = None
 		
 		self.combined = self._combined()
+		self.partition = self._partition()
 		self.args = problems
 	
 	@property
@@ -85,6 +87,26 @@ class Problems(object):
 			else:
 				p_comb -= prob
 		return p_comb
+	
+	def _partition(self):
+		"""Determine which variables are in each problem.
+		
+		Returns a boolean array with variables (rows) by problems (columns).
+		True at (i,j) indicates variable i is in problem j, either as part
+		of the objective and/or constraints.
+		"""
+		v_ids = [v.id for v in self.variables()]
+		n_vars = len(self.variables())
+		n_probs = len(self.problems)
+		
+		p_idx = 0
+		v_table = np.zeros((n_vars, n_probs), dtype=bool)
+		for prob in self.problems:
+			for var in prob.variables():
+				v_idx = v_ids.index(var.id)
+				v_table[v_idx, p_idx] = True
+			p_idx = p_idx + 1
+		return v_table
 	
 	@property
 	def objective(self):
@@ -135,6 +157,16 @@ class Problems(object):
         """
 		return self.combined.constants()
 	
+	def pretty_vars(self):
+		"""Pretty print variable partition across problems.
+		"""
+		from tabulate import tabulate
+		N = len(self.problems)
+		v_ids = ["Var%d" % v.id for v in self.variables()]
+		table = np.column_stack((v_ids, self.partition))
+		headers = [''] + ["Prob%d" % idx for idx in range(0,N)]
+		print tabulate(table, headers=headers, tablefmt='orgtbl')
+        
 	@property
 	def solver_stats(self):
 		""":class:`~cvxpy.problems.problem.SolverStats` : Information returned by the solver.
@@ -182,44 +214,3 @@ class Problems(object):
 		
 		# TODO: Handle statuses.
 		self._solver_stats = solution["solve_time"]
-
-def basic_test():
-	np.random.seed(1)
-	m = 100
-	n = 10
-	max_iter = 10
-	x = Variable(n)
-	y = Variable(n/2)
-
-	# Problem data.
-	alpha = 0.5
-	A = np.random.randn(m*n).reshape(m,n)
-	xtrue = np.random.randn(n)
-	b = A.dot(xtrue) + np.random.randn(m)
-
-	# List of all the problems with objective f_i.
-	p_list = [Problem(Minimize(sum_squares(A*x-b)), [norm(x,2) <= 1]),
-			  Problem(Minimize((1-alpha)*sum_squares(y)/2))]
-	probs = Problems(p_list)
-	N = len(p_list)   # Number of problems.
-	
-	# Solve with consensus ADMM.
-	obj_admm = probs.solve(method = "consensus", rho_init = N*[1.0], max_iter = max_iter)
-	x_admm = [x.value for x in probs.variables()]
-
-	# Solve combined problem.
-	obj_comb = probs.solve(method = "combined")
-	x_comb = [x.value for x in probs.variables()]
-
-	# Compare results.
-	for i in range(N):
-		print "ADMM Solution:\n", x_admm[i]
-		print "Base Solution:\n", x_comb[i]
-		print "MSE: ", np.mean(np.square(x_admm[i] - x_comb[i])), "\n"
-	print "ADMM Objective: %f" % obj_admm
-	print "Base Objective: %f" % obj_comb
-	print "Elapsed Time: %f" % probs.solver_stats
-
-import numpy as np
-from cvxpy import *
-basic_test()
