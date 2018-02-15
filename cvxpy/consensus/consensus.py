@@ -149,6 +149,42 @@ def step_spec(rho, k, dx, dxbar, du, duhat, eps = 0.2, C = 1e10):
 	rho_hat = step_safe(rho, a_hat, b_hat, a_cor, b_cor, eps)
 	return max(min(rho_hat, scale*rho), rho/scale)
 
+def prox_step(prob, rho_init):
+	vmap = {}   # Store consensus variables
+	f = flip_obj(prob).args[0]
+	rho = Parameter(1, 1, value = rho_init, sign = "positive")   # Step size
+	
+	# Add penalty for each variable.
+	for xvar in prob.variables():
+		xid = xvar.id
+		size = xvar.size
+		vmap[xid] = {"x": xvar, "xbar": Parameter(size[0], size[1], value = np.zeros(size)),
+				  "u": Parameter(size[0], size[1], value = np.zeros(size))}
+		f += (rho/2.0)*sum_squares(xvar - vmap[xid]["xbar"] - vmap[xid]["u"]/rho)
+	
+	prox = Problem(Minimize(f), prob.constraints)
+	return prox, vmap, rho
+
+def x_average(prox_res):
+	xbars = defaultdict(float)
+	xcnts = defaultdict(int)
+	
+	for status, xvals in prox_res:
+		# Check if proximal step converged.
+		if status in s.INF_OR_UNB:
+			raise RuntimeError("Proximal problem is infeasible or unbounded")
+		
+		# Sum up x values.
+		for key, value in xvals.items():
+			xbars[key] += value
+			++xcnts[key]
+	
+	# Divide by total count.
+	for key in xbars.keys():
+		if xcnts[key] != 0:
+			xbars[key] /= xcnts[key]
+	return xbars
+
 def run_worker(pipe, p, rho_init, *args, **kwargs):
 	# Spectral step size parameters.
 	spectral = kwargs.pop("spectral", False)
@@ -156,35 +192,26 @@ def run_worker(pipe, p, rho_init, *args, **kwargs):
 	eps = kwargs.pop("eps", 0.2)
 	C = kwargs.pop("C", 1e10)
 	
-	f = flip_obj(p).args[0]
-	cons = p.constraints
-	
-	# Add penalty for each variable.
-	v = {}
-	rho = Parameter(1, 1, value = rho_init, sign = "positive")
-	for xvar in p.variables():
-		xid = xvar.id
-		size = xvar.size
-		v[xid] = {"x": xvar, "xbar": Parameter(size[0], size[1], value = np.zeros(size)),
-				  "u": Parameter(size[0], size[1], value = np.zeros(size))}
-		f += (rho/2.0)*sum_squares(xvar - v[xid]["xbar"] - v[xid]["u"]/rho)
-	prox = Problem(Minimize(f), cons)
+	# Initiate proximal problem.
+	prox, v, rho = prox_step(p, rho_init)
 	
 	# Initiate step size variables.
-	size_all = np.prod([np.prod(xvar.size) for xvar in p.variables()])
-	v_old = {"x": np.zeros(size_all), "xbar": np.zeros(size_all),
-			 "u": np.zeros(size_all), "uhat": np.zeros(size_all)}
+	nelem = np.prod([np.prod(xvar.size) for xvar in p.variables()])
+	v_old = {"x": np.zeros(nelem), "xbar": np.zeros(nelem),
+			 "u": np.zeros(nelem), "uhat": np.zeros(nelem)}
 	
 	# ADMM loop.
 	while True:
 		prox.solve(*args, **kwargs)
+		
+		# Calculate x_bar.
 		xvals = {}
 		for xvar in prox.variables():
 			xvals[xvar.id] = xvar.value
 		pipe.send((prox.status, xvals))
+		xbars, i = pipe.recv()
 		
 		# Update u += rho*(x - x_bar).
-		xbars, i = pipe.recv()
 		v_flat = {"x": [], "xbar": [], "u": [], "uhat": []}
 		for key in v.keys():
 			xbar_old = v[key]["xbar"].value
@@ -238,21 +265,8 @@ def consensus(p_list, *args, **kwargs):
 	start = time()
 	for i in range(max_iter):
 		# Gather and average x_i.
-		xbars = defaultdict(float)
-		xcnts = defaultdict(int)
 		prox_res = [pipe.recv() for pipe in pipes]
-	
-		for status, xvals in prox_res:
-			if status in s.INF_OR_UNB:
-				raise RuntimeError("Proximal problem is infeasible or unbounded")
-			
-			for key, value in xvals.items():
-				xbars[key] += value
-				++xcnts[key]
-	
-		for key in xbars.keys():
-			if xcnts[key] != 0:
-				xbars[key] /= xcnts[key]
+		xbars = x_average(prox_res)
 	
 		# Scatter x_bar.
 		for pipe in pipes:
