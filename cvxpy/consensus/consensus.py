@@ -159,7 +159,7 @@ def prox_step(prob, rho_init):
 		xid = xvar.id
 		size = xvar.size
 		vmap[xid] = {"x": xvar, "xbar": Parameter(size[0], size[1], value = np.zeros(size)),
-				  "u": Parameter(size[0], size[1], value = np.zeros(size))}
+				     "u": Parameter(size[0], size[1], value = np.zeros(size))}
 		f += (rho/2.0)*sum_squares(xvar - vmap[xid]["xbar"] - vmap[xid]["u"]/rho)
 	
 	prox = Problem(Minimize(f), prob.constraints)
@@ -275,3 +275,40 @@ def consensus(p_list, *args, **kwargs):
 
 	[p.terminate() for p in procs]
 	return {"xbars": xbars, "solve_time": (end - start)}
+	
+def worker_map(pipe, p, rho_init, xbars, uvals, *args, *kwargs):
+	# Initiate proximal problem.
+	prox, v, rho = prox_step(p, rho_init)
+	
+	# Set parameter values and solve.
+	for key in v.keys():
+		v[key]["xbar"] = xbars[key]
+		v[key]["u"] = uvals[key]
+	
+	prox.solve(*args, **kwargs)
+	
+	# Calculate new x_bars.
+	xvals = {}
+	for xvar in prox.variables():
+		xvals[xvar.id] = xvar.value
+	pipe.send((prox.status, xvals))
+	xbars_new = pipe.recv()
+	
+	# Update u += rho*(x - x_bar).
+	for key in v.keys():
+		uvals_new[key] = uvals[key] + rho.value*(v[key]["x"].value - xbars_new[key])
+	pipe.send(uvals_new)
+
+def consensus_map(xbars, uvals):
+	# Solve proximal problem.
+	prox_res = [pipe.recv() for pipe in pipes]
+	
+	# Gather and average x_i.
+	xbars_new = x_average(prox_res)
+	
+	# Update u_i and step size.
+	for pipe in pipes:
+		pipe.send(xbars_new)
+	uvals_new = [pipe.recv() for pipe in pipes]
+	
+	return xbars_new, uvals_new
