@@ -275,40 +275,135 @@ def consensus(p_list, *args, **kwargs):
 
 	[p.terminate() for p in procs]
 	return {"xbars": xbars, "solve_time": (end - start)}
+
+def dicts_to_arr(xbars, udicts):
+	# TODO: Flatten x_bar and u into vectors. (Keep original shape information).
+	xstack = np.fromiter(xbars.values(), dtype=float, count=len(xbars))
+	ustack = (np.fromiter(udict.values(), dtype=float, count=len(udict)) for udict in udicts)
+	xuarr = np.concatenate(ustack + (xstack,))
+	return np.array([xuarr]).T
+
+def arr_to_dicts(arr, xids, xshapes):
+	# Split array into x_bar and u vectors.
+	xnum = len(xshapes)
+	N = len(arr)/xnum - 1
+	xelems = [np.prod(shape) for shape in xshapes]
+	asubs = np.split(arr, N+1)
 	
-def worker_map(pipe, p, rho_init, xbars, uvals, *args, *kwargs):
+	# Reshape vectors into proper shape.
+	sidx = 0
+	xbars = []
+	udicts = []
+	for i in range(xnum):
+		# Reshape x_bar.
+		eidx = sidx + xelems[i]
+		xvec = asubs[0][sidx:eidx]
+		xbars += [np.reshape(xvec, xshapes[i])]
+		
+		# Reshape u_i for each pipe.
+		uvals = []
+		for j in range(1,N):
+			uvec = asubs[j][sidx:eidx]
+			uvals += [np.reshape(uvec, xshapes[i])]
+		udicts += [uvals]
+		sidx += xelems[i]
+		
+	xbars = dict(zip(xids, xbars))
+	udicts = [dict(zip(xids, u)) for u in udicts]
+	return xbars, udicts
+	
+def worker_map(pipe, p, rho_init, *args, **kwargs):
 	# Initiate proximal problem.
 	prox, v, rho = prox_step(p, rho_init)
 	
-	# Set parameter values and solve.
-	for key in v.keys():
-		v[key]["xbar"] = xbars[key]
-		v[key]["u"] = uvals[key]
-	
-	prox.solve(*args, **kwargs)
-	
-	# Calculate new x_bars.
-	xvals = {}
-	for xvar in prox.variables():
-		xvals[xvar.id] = xvar.value
-	pipe.send((prox.status, xvals))
-	xbars_new = pipe.recv()
-	
-	# Update u += rho*(x - x_bar).
-	for key in v.keys():
-		uvals_new[key] = uvals[key] + rho.value*(v[key]["x"].value - xbars_new[key])
-	pipe.send(uvals_new)
+	# ADMM loop.
+	while True:
+		# Set parameter values.
+		xbars, uvals = pipe.recv()
+		for key in v.keys():
+			v[key]["xbar"].value = xbars[key]
+			v[key]["u"].value = uvals[key]
+		
+		# Proximal step with given x_bar and u.
+		prox.solve(*args, **kwargs)
+		
+		# Update u += rho*(x - x_bar).
+		for key in v.keys():
+			uvals[key] += rho.value*(v[key]["x"].value - xbars[key])
+			
+		# Scatter x and updated u.
+		xvals = {k: d["x"].value for k,d in v.items()}
+		pipe.send((prox.status, xvals, uvals))
 
-def consensus_map(xbars, uvals):
-	# Solve proximal problem.
-	prox_res = [pipe.recv() for pipe in pipes]
+def consensus_map(pipes, xbars, udicts):
+	# Scatter x_bar and u.
+	N = len(pipes)
+	for i in range(N):
+		pipes[i].send((xbars, udicts[i]))
 	
-	# Gather and average x_i.
-	xbars_new = x_average(prox_res)
+	# Gather updated x and u.
+	xbars_n = defaultdict(float)
+	xcnts = defaultdict(int)
+	udicts_n = []
 	
-	# Update u_i and step size.
-	for pipe in pipes:
-		pipe.send(xbars_new)
-	uvals_new = [pipe.recv() for pipe in pipes]
+	for i in range(N):
+		status, xvals, uvals = pipes[i].recv()
+		
+		# Check if proximal step converged.
+		if status in s.INF_OR_UNB:
+			raise RuntimeError("Proximal problem is infeasible or unbounded")
+		
+		# Sum up x_i values.
+		for key, value in xvals.items():
+			xbars_n[key] += value
+			++xcnts[key]
+		udicts_n += [uvals]
 	
-	return xbars_new, uvals_new
+	# Average x_i across pipes.
+	for key in xbars.keys():
+		if xcnts[key] != 0:
+			xbars_n[key] /= xcnts[key]
+	
+	return xbars_n, udicts_n
+
+def basic_test():
+	from cvxpy import *
+	np.random.seed(1)
+	m = 100
+	n = 10
+	MAX_ITER = 10
+	x = Variable(n)
+	y = Variable(n/2)
+
+	# Problem data.
+	alpha = 0.5
+	A = np.random.randn(m*n).reshape(m,n)
+	xtrue = np.random.randn(n)
+	b = A.dot(xtrue) + np.random.randn(m)
+
+	# List of all the problems with objective f_i.
+	p_list = [Problem(Minimize(sum_squares(A*x-b)), [norm(x,2) <= 1]),
+			  Problem(Minimize((1-alpha)*sum_squares(y)/2))]
+	N = len(p_list)
+	rho_init = N*[1.0]
+	
+	# Set up the workers.
+	pipes = []
+	procs = []
+	for i in range(N):
+		local, remote = Pipe()
+		pipes += [local]
+		procs += [Process(target = worker_map, args = (remote, p_list[i], rho_init[i]))]
+		procs[-1].start()
+	
+	# ADMM loop.
+	xbars = {x.id: np.zeros(x.size), y.id: np.zeros(y.size)}
+	udicts = N*[{x.id: np.zeros(x.size), y.id: np.zeros(y.size)}]
+	for i in range(MAX_ITER):
+		xbars, udicts = consensus_map(pipes, xbars, udicts)
+	
+	[p.terminate() for p in procs]
+	for xid, xbar in xbars.items():
+		print "Variable %d:\n" % xid, xbar
+
+basic_test()

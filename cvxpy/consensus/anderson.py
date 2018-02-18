@@ -95,17 +95,3 @@ def anderson_accel(g, x0, m, max_iters=10, rcond=np.inf):
 		f_o = f_n
 		x_n = x_n + f_n - (X_d + Q.dot(R)).dot(gam)
 	return x_n
-
-def basic_test():
-	def g(x):
-		x = x[:,0]
-		y0 = (2*x[0] + x[0]**2 - x[1])/2.0
-		y1 = (2*x[0] - x[0]**2 + 8)/9 + (4*x[1]-x[1]**2)/4.0
-		return np.array([[y0, y1]]).T
-
-	m = 5
-	x0 = np.array([[-1.0, 1.0]]).T
-	res = anderson_accel(g, x0, m, max_iters=10, rcond=2)
-	print(res)   # [-1.17397479  1.37821681]
-
-basic_test()
