@@ -183,7 +183,7 @@ def x_average(prox_res):
 	for key in xbars.keys():
 		if xcnts[key] != 0:
 			xbars[key] /= xcnts[key]
-	return xbars
+	return dict(xbars)
 
 def run_worker(pipe, p, rho_init, *args, **kwargs):
 	# Spectral step size parameters.
@@ -277,17 +277,22 @@ def consensus(p_list, *args, **kwargs):
 	return {"xbars": xbars, "solve_time": (end - start)}
 
 def dicts_to_arr(xbars, udicts):
-	# TODO: Flatten x_bar and u into vectors. (Keep original shape information).
-	xstack = np.fromiter(xbars.values(), dtype=float, count=len(xbars))
-	ustack = (np.fromiter(udict.values(), dtype=float, count=len(udict)) for udict in udicts)
-	xuarr = np.concatenate(ustack + (xstack,))
-	return np.array([xuarr]).T
+	# Keep shape information.
+	xshapes = [xbar.shape for xbar in xbars.values()]
+	
+	# Flatten x_bar and u into vectors.
+	xflat = [xbar.flatten(order='C') for xbar in xbars.values()]
+	uflat = [u.flatten(order='C') for udict in udicts for u in udict.values()]
+	
+	xuarr = np.concatenate(xflat + uflat)
+	xuarr = np.array([xuarr]).T
+	return xuarr, xshapes
 
 def arr_to_dicts(arr, xids, xshapes):
 	# Split array into x_bar and u vectors.
-	xnum = len(xshapes)
-	N = len(arr)/xnum - 1
+	xnum = len(xids)
 	xelems = [np.prod(shape) for shape in xshapes]
+	N = len(arr)/sum(xelems) - 1
 	asubs = np.split(arr, N+1)
 	
 	# Reshape vectors into proper shape.
@@ -302,12 +307,13 @@ def arr_to_dicts(arr, xids, xshapes):
 		
 		# Reshape u_i for each pipe.
 		uvals = []
-		for j in range(1,N):
-			uvec = asubs[j][sidx:eidx]
+		for j in range(N):
+			uvec = asubs[j+1][sidx:eidx]
 			uvals += [np.reshape(uvec, xshapes[i])]
 		udicts += [uvals]
 		sidx += xelems[i]
-		
+	
+	# Compile into dicts.
 	xbars = dict(zip(xids, xbars))
 	udicts = [dict(zip(xids, u)) for u in udicts]
 	return xbars, udicts
@@ -332,7 +338,7 @@ def worker_map(pipe, p, rho_init, *args, **kwargs):
 			uvals[key] += rho.value*(v[key]["x"].value - xbars[key])
 			
 		# Scatter x and updated u.
-		xvals = {k: d["x"].value for k,d in v.items()}
+		xvals = {k: np.asarray(d["x"].value) for k,d in v.items()}
 		pipe.send((prox.status, xvals, uvals))
 
 def consensus_map(pipes, xbars, udicts):
@@ -364,7 +370,7 @@ def consensus_map(pipes, xbars, udicts):
 		if xcnts[key] != 0:
 			xbars_n[key] /= xcnts[key]
 	
-	return xbars_n, udicts_n
+	return dict(xbars_n), udicts_n
 
 def basic_test():
 	from cvxpy import *
