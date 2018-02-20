@@ -45,7 +45,7 @@ def trim_cond(Q, R, Qt, Rt, rcond=np.inf):
 		cond = np.linalg.cond(Q.dot(R))
 	return (Q, R, Qt, Rt)
 
-def anderson_accel(g, x0, m, max_iters=10, rcond=np.inf):
+def anderson_accel(g, x0, m, max_iters=10, rcond=np.inf, g_args=()):
 	if(max_iters < 1):
 		raise ValueError('max_iters must be >= 1')
 	if(rcond < 1):
@@ -53,7 +53,7 @@ def anderson_accel(g, x0, m, max_iters=10, rcond=np.inf):
 	
 	# Initialize
 	x_o = x0
-	x_n = g(x0)
+	x_n = g(x0, *g_args)
 	f_o = x_n-x0
 	
 	n = x0.shape[0]
@@ -66,7 +66,7 @@ def anderson_accel(g, x0, m, max_iters=10, rcond=np.inf):
 	for k in range(1, max_iters+1):
 		# Compute data
 		m_k = min(m,k)
-		f_n = g(x_n) - x_n
+		f_n = g(x_n, *g_args) - x_n
 		
 		# Update difference matrices
 		if k > m_k:
