@@ -69,7 +69,27 @@ def arr_to_dicts(arr, xids, xshapes):
 	xbars = dict(zip(xids, xbars))
 	udicts = [dict(zip(xids, u)) for u in udicts]
 	return xbars, udicts
+
+def x_average(prox_res):
+	xbars = defaultdict(float)
+	xcnts = defaultdict(int)
 	
+	for status, xvals in prox_res:
+		# Check if proximal step converged.
+		if status in s.INF_OR_UNB:
+			raise RuntimeError("Proximal problem is infeasible or unbounded")
+		
+		# Sum up x values.
+		for key, value in xvals.items():
+			xbars[key] += value
+			++xcnts[key]
+	
+	# Divide by total count.
+	for key in xbars.keys():
+		if xcnts[key] != 0:
+			xbars[key] /= xcnts[key]
+	return dict(xbars)
+
 def worker_map(pipe, p, rho_init, *args, **kwargs):
 	# Spectral step size parameters.
 	spectral = kwargs.pop("spectral", False)
@@ -82,53 +102,62 @@ def worker_map(pipe, p, rho_init, *args, **kwargs):
 	
 	# ADMM loop.
 	while True:
-		# Set parameter values.
+		# Receive x_bar^(k) and u^(k).
 		xbars, uvals, cur_iter = pipe.recv()
+		
+		ssq = defaultdict(float)
 		for key in v.keys():
+			# Calculate k-th primal/dual residual
+			if v[key]["x"].value is None:
+				primal = -xbars[key]
+			else:
+				primal = (v[key]["x"] - xbars[key]).value
+			dual = (rho*(v[key]["xbar"] - xbars[key])).value
+			
+			# Set parameter values of x_bar^(k) and u^(k).
 			v[key]["xbar"].value = xbars[key]
 			v[key]["u"].value = uvals[key]
+			
+			# Save k-th stopping rule criteria.
+			ssq["primal"] += np.sum(np.square(primal))
+			ssq["dual"] += np.sum(np.square(dual))
+			if v[key]["x"].value is not None:
+				ssq["x"] += np.sum(np.square(v[key]["x"].value))
+			ssq["xbar"] += np.sum(np.square(v[key]["xbar"].value))
+			ssq["u"] += np.sum(np.square(v[key]["u"].value))
 		
-		# Proximal step with given x_bar and u.
+		# Proximal step for x^(k+1) with x_bar^(k) and u^(k).
 		prox.solve(*args, **kwargs)
 		
-		# Update u += rho*(x - x_bar).
+		# Calcuate x_bar^(k+1).
+		xvals = {k: np.asarray(d["x"].value) for k,d in v.items()}
+		pipe.send((prox.status, xvals))
+		xbars = pipe.recv()
+		
+		# Update u^(k+1) += rho*(x^(k+1) - x_bar^(k+1)).
 		for key in v.keys():
 			uvals[key] += rho.value*(v[key]["x"].value - xbars[key])
 			
-		# Scatter x and updated u.
-		xvals = {k: np.asarray(d["x"].value) for k,d in v.items()}
-		pipe.send((prox.status, xvals, uvals))
+		# Return u^(k+1) and step size.
+		pipe.send(uvals)
 
 def consensus_map(xuarr, pipes, xids, xshapes, cur_iter):
 	xbars, udicts = arr_to_dicts(xuarr, xids, xshapes)
 	
-	# Scatter x_bar and u.
+	# Scatter x_bar^(k) and u^(k).
 	N = len(pipes)
 	for i in range(N):
 		pipes[i].send((xbars, udicts[i], cur_iter))
 	
-	# Gather updated x and u.
-	xbars_n = defaultdict(float)
-	xcnts = defaultdict(int)
-	udicts_n = []
+	# Gather and average x^(k+1).
+	prox_res = [pipe.recv() for pipe in pipes]
+	xbars_n = x_average(prox_res)
 	
-	for i in range(N):
-		status, xvals, uvals = pipes[i].recv()
-		
-		# Check if proximal step converged.
-		if status in s.INF_OR_UNB:
-			raise RuntimeError("Proximal problem is infeasible or unbounded")
-		
-		# Sum up x_i values.
-		for key, value in xvals.items():
-			xbars_n[key] += value
-			++xcnts[key]
-		udicts_n += [uvals]
+	# Scatter x_bar^(k+1).
+	for pipe in pipes:
+		pipe.send(xbars_n)
 	
-	# Average x_i across pipes.
-	for key in xbars.keys():
-		if xcnts[key] != 0:
-			xbars_n[key] /= xcnts[key]
-	
-	xuarr_n, xshapes = dicts_to_arr(dict(xbars_n), udicts_n)
+	# Gather updated u^(k+1).
+	udicts_n = [pipe.recv() for pipe in pipes]
+	xuarr_n, xshapes = dicts_to_arr(xbars_n, udicts_n)
 	return xuarr_n
