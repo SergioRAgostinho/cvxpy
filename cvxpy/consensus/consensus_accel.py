@@ -22,7 +22,7 @@ from cvxpy.problems.problem import Problem, Minimize
 from cvxpy.expressions.constants import Parameter
 from cvxpy.atoms import sum_squares
 
-from consensus import prox_step
+from consensus import prox_step, x_average
 from anderson import anderson_accel
 
 import numpy as np
@@ -70,25 +70,16 @@ def arr_to_dicts(arr, xids, xshapes):
 	udicts = [dict(zip(xids, u)) for u in udicts]
 	return xbars, udicts
 
-def x_average(prox_res):
-	xbars = defaultdict(float)
-	xcnts = defaultdict(int)
+def res_stop(res_ssq, eps = 1e-6):
+	primal = np.sum([r["primal"] for r in res_ssq])
+	dual = np.sum([r["dual"] for r in res_ssq])
 	
-	for status, xvals in prox_res:
-		# Check if proximal step converged.
-		if status in s.INF_OR_UNB:
-			raise RuntimeError("Proximal problem is infeasible or unbounded")
-		
-		# Sum up x values.
-		for key, value in xvals.items():
-			xbars[key] += value
-			++xcnts[key]
+	x_ssq = np.sum([r["x"] for r in res_ssq])
+	xbar_ssq = np.sum([r["xbar"] for r in res_ssq])
+	u_ssq = np.sum([r["u"] for r  in res_ssq])
 	
-	# Divide by total count.
-	for key in xbars.keys():
-		if xcnts[key] != 0:
-			xbars[key] /= xcnts[key]
-	return dict(xbars)
+	stopped = primal <= eps*max(x_ssq, xbar_ssq) and dual <= eps*u_ssq
+	return primal, dual, stopped
 
 def worker_map(pipe, p, rho_init, *args, **kwargs):
 	# Spectral step size parameters.
@@ -105,9 +96,9 @@ def worker_map(pipe, p, rho_init, *args, **kwargs):
 		# Receive x_bar^(k) and u^(k).
 		xbars, uvals, cur_iter = pipe.recv()
 		
-		ssq = defaultdict(float)
+		ssq = {"primal": 0, "dual": 0, "x": 0, "xbar": 0, "u": 0}
 		for key in v.keys():
-			# Calculate k-th primal/dual residual
+			# Calculate primal/dual residual
 			if v[key]["x"].value is None:
 				primal = -xbars[key]
 			else:
@@ -118,13 +109,14 @@ def worker_map(pipe, p, rho_init, *args, **kwargs):
 			v[key]["xbar"].value = xbars[key]
 			v[key]["u"].value = uvals[key]
 			
-			# Save k-th stopping rule criteria.
+			# Save stopping rule criteria.
 			ssq["primal"] += np.sum(np.square(primal))
 			ssq["dual"] += np.sum(np.square(dual))
 			if v[key]["x"].value is not None:
 				ssq["x"] += np.sum(np.square(v[key]["x"].value))
 			ssq["xbar"] += np.sum(np.square(v[key]["xbar"].value))
 			ssq["u"] += np.sum(np.square(v[key]["u"].value))
+		pipe.send(ssq)
 		
 		# Proximal step for x^(k+1) with x_bar^(k) and u^(k).
 		prox.solve(*args, **kwargs)
@@ -148,6 +140,10 @@ def consensus_map(xuarr, pipes, xids, xshapes, cur_iter):
 	N = len(pipes)
 	for i in range(N):
 		pipes[i].send((xbars, udicts[i], cur_iter))
+	
+	# Calculate normalized residuals.
+	ssq = [pipe.recv() for pipe in pipes]
+	primal, dual, stopped = res_stop(ssq)
 	
 	# Gather and average x^(k+1).
 	prox_res = [pipe.recv() for pipe in pipes]
