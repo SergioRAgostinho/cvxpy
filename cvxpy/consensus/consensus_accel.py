@@ -28,10 +28,11 @@ from anderson import anderson_accel
 import numpy as np
 from collections import defaultdict
 
-# TODO: dicts_to_arr/arr_to_dicts must allow different u_i for each pipe.
+# TODO: Change xshapes, ushapes into dicts and drop xids, uids.
 def dicts_to_arr(xbars, udicts):
 	# Keep shape information.
 	xshapes = [xbar.shape for xbar in xbars.values()]
+	ushapes = [[u.shape for u in udict.values()] for udict in udicts]
 	
 	# Flatten x_bar and u into vectors.
 	xflat = [xbar.flatten(order='C') for xbar in xbars.values()]
@@ -39,14 +40,16 @@ def dicts_to_arr(xbars, udicts):
 	
 	xuarr = np.concatenate(xflat + uflat)
 	xuarr = np.array([xuarr]).T
-	return xuarr, xshapes
+	return xuarr, xshapes, ushapes
 
-def arr_to_dicts(arr, xids, xshapes):
+def arr_to_dicts(arr, xids, uids, xshapes, ushapes):
 	# Split array into x_bar and u vectors.
-	xnum = len(xids)
+	N = len(ushapes)
+	xnum = len(xshapes)
 	xelems = [np.prod(shape) for shape in xshapes]
-	N = len(arr)/sum(xelems) - 1
-	asubs = np.split(arr, N+1)
+	uelems = [[np.prod(shape) for shape in ushape] for ushape in ushapes]
+	split_idx = np.cumsum([np.sum(xelems)] + [np.sum(uelem) for uelem in uelems])
+	asubs = np.split(arr, split_idx)
 	
 	# Reshape x_bar.
 	sidx = 0
@@ -62,16 +65,16 @@ def arr_to_dicts(arr, xids, xshapes):
 	for j in range(N):
 		sidx = 0
 		uvals = []
-		for i in range(xnum):
-			eidx = sidx + xelems[i]
+		for i in range(len(ushapes[j])):
+			eidx = sidx + uelems[j][i]
 			uvec = asubs[j+1][sidx:eidx]
-			uvals += [np.reshape(uvec, xshapes[i])]
-			sidx += xelems[i]
+			uvals += [np.reshape(uvec, ushapes[j][i])]
+			sidx += uelems[j][i]
 		udicts += [uvals]
 	
 	# Compile into dicts.
 	xbars = dict(zip(xids, xbars))
-	udicts = [dict(zip(xids, u)) for u in udicts]
+	udicts = [dict(zip(uid, u)) for uid, u in zip(uids, udicts)]
 	return xbars, udicts
 
 def worker_map(pipe, p, rho_init, *args, **kwargs):
@@ -126,8 +129,8 @@ def worker_map(pipe, p, rho_init, *args, **kwargs):
 		# Return u^(k+1) and step size.
 		pipe.send(uvals)
 
-def consensus_map(xuarr, pipes, xids, xshapes, cur_iter):
-	xbars, udicts = arr_to_dicts(xuarr, xids, xshapes)
+def consensus_map(xuarr, pipes, xids, uids, xshapes, ushapes, cur_iter):
+	xbars, udicts = arr_to_dicts(xuarr, xids, uids, xshapes, ushapes)
 	
 	# Scatter x_bar^(k) and u^(k).
 	N = len(pipes)
@@ -148,5 +151,5 @@ def consensus_map(xuarr, pipes, xids, xshapes, cur_iter):
 	
 	# Gather updated u^(k+1).
 	udicts_n = [pipe.recv() for pipe in pipes]
-	xuarr_n, xshapes = dicts_to_arr(xbars_n, udicts_n)
+	xuarr_n, xshapes, ushapes = dicts_to_arr(xbars_n, udicts_n)
 	return xuarr_n, np.array([primal, dual])

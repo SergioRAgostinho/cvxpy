@@ -28,12 +28,13 @@ from anderson import anderson_accel
 
 def run_consensus(pipes, xbars, udicts, max_iters, accel = False):
 	xids = xbars.keys()
-	xuarr, xshapes = dicts_to_arr(xbars, udicts)
+	uids = [udict.keys() for udict in udicts]
+	xuarr, xshapes, ushapes = dicts_to_arr(xbars, udicts)
 	
 	# Wrapper for saving primal/dual residuals.
 	resid = np.zeros((max_iters, 2))
 	def consensus_wrapper(xuarr, i):
-		xuarr, resid[i,:] = consensus_map(xuarr, pipes, xids, xshapes, i)
+		xuarr, resid[i,:] = consensus_map(xuarr, pipes, xids, uids, xshapes, ushapes, i)
 		return xuarr
 	
 	if accel:
@@ -46,7 +47,7 @@ def run_consensus(pipes, xbars, udicts, max_iters, accel = False):
 		for i in range(max_iters):
 			xuarr = consensus_wrapper(xuarr, i)
 	
-	xbars_f, udicts_f = arr_to_dicts(xuarr, xids, xshapes)
+	xbars_f, udicts_f = arr_to_dicts(xuarr, xids, uids, xshapes, ushapes)
 	return xbars_f, udicts_f, resid
 
 def plot_residuals(iters, resid, resid_accel = None):
@@ -101,7 +102,7 @@ def consensus_test():
 	
 	# Initial guesses.
 	xbars = {x.id: np.zeros(x.size), y.id: np.zeros(y.size)}
-	udicts = N*[{x.id: np.zeros(x.size), y.id: np.zeros(y.size)}]
+	udicts = [{x.id: np.zeros(x.size)}, {y.id: np.zeros(y.size)}]
 	
 	xbars, udicts, resid = run_consensus(pipes, xbars, udicts, MAX_ITER, accel = False)
 	xbars_aa, udicts_aa, resid_aa = run_consensus(pipes, xbars, udicts, MAX_ITER, accel = True)
