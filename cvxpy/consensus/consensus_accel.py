@@ -22,12 +22,13 @@ from cvxpy.problems.problem import Problem, Minimize
 from cvxpy.expressions.constants import Parameter
 from cvxpy.atoms import sum_squares
 
-from consensus import prox_step, x_average
+from consensus import prox_step, x_average, res_stop
 from anderson import anderson_accel
 
 import numpy as np
 from collections import defaultdict
 
+# TODO: dicts_to_arr/arr_to_dicts must allow different u_i for each pipe.
 def dicts_to_arr(xbars, udicts):
 	# Keep shape information.
 	xshapes = [xbar.shape for xbar in xbars.values()]
@@ -47,39 +48,31 @@ def arr_to_dicts(arr, xids, xshapes):
 	N = len(arr)/sum(xelems) - 1
 	asubs = np.split(arr, N+1)
 	
-	# Reshape vectors into proper shape.
+	# Reshape x_bar.
 	sidx = 0
 	xbars = []
-	udicts = []
 	for i in range(xnum):
-		# Reshape x_bar.
 		eidx = sidx + xelems[i]
 		xvec = asubs[0][sidx:eidx]
 		xbars += [np.reshape(xvec, xshapes[i])]
-		
-		# Reshape u_i for each pipe.
+		sidx += xelems[i]
+	
+	# Reshape u_i for each pipe.
+	udicts = []
+	for j in range(N):
+		sidx = 0
 		uvals = []
-		for j in range(N):
+		for i in range(xnum):
+			eidx = sidx + xelems[i]
 			uvec = asubs[j+1][sidx:eidx]
 			uvals += [np.reshape(uvec, xshapes[i])]
+			sidx += xelems[i]
 		udicts += [uvals]
-		sidx += xelems[i]
 	
 	# Compile into dicts.
 	xbars = dict(zip(xids, xbars))
 	udicts = [dict(zip(xids, u)) for u in udicts]
 	return xbars, udicts
-
-def res_stop(res_ssq, eps = 1e-6):
-	primal = np.sum([r["primal"] for r in res_ssq])
-	dual = np.sum([r["dual"] for r in res_ssq])
-	
-	x_ssq = np.sum([r["x"] for r in res_ssq])
-	xbar_ssq = np.sum([r["xbar"] for r in res_ssq])
-	u_ssq = np.sum([r["u"] for r  in res_ssq])
-	
-	stopped = primal <= eps*max(x_ssq, xbar_ssq) and dual <= eps*u_ssq
-	return primal, dual, stopped
 
 def worker_map(pipe, p, rho_init, *args, **kwargs):
 	# Spectral step size parameters.
@@ -156,4 +149,4 @@ def consensus_map(xuarr, pipes, xids, xshapes, cur_iter):
 	# Gather updated u^(k+1).
 	udicts_n = [pipe.recv() for pipe in pipes]
 	xuarr_n, xshapes = dicts_to_arr(xbars_n, udicts_n)
-	return xuarr_n
+	return xuarr_n, np.array([primal, dual])

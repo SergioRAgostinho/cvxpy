@@ -185,6 +185,17 @@ def x_average(prox_res):
 			xbars[key] /= xcnts[key]
 	return dict(xbars)
 
+def res_stop(res_ssq, eps = 1e-6):
+	primal = np.sum([r["primal"] for r in res_ssq])
+	dual = np.sum([r["dual"] for r in res_ssq])
+	
+	x_ssq = np.sum([r["x"] for r in res_ssq])
+	xbar_ssq = np.sum([r["xbar"] for r in res_ssq])
+	u_ssq = np.sum([r["u"] for r  in res_ssq])
+	
+	stopped = primal <= eps*max(x_ssq, xbar_ssq) and dual <= eps*u_ssq
+	return primal, dual, stopped
+
 def run_worker(pipe, p, rho_init, *args, **kwargs):
 	# Spectral step size parameters.
 	spectral = kwargs.pop("spectral", False)
