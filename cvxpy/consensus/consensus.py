@@ -150,6 +150,27 @@ def step_spec(rho, k, dx, dxbar, du, duhat, eps = 0.2, C = 1e10):
 	return max(min(rho_hat, scale*rho), rho/scale)
 
 def prox_step(prob, rho_init):
+	"""Formulates the proximal operator for a given objective, constraints, and step size.
+	Parikh, Boyd. "Proximal Algorithms."
+	
+	Parameters
+    ----------
+    prob : Problem
+        The objective and constraints associated with the proximal operator.
+        The sign of the objective function is flipped if `prob` is a maximization problem.
+    rho_init : float
+        The initial step size.
+    
+    Returns
+    ----------
+    prox : Problem
+        The proximal step problem.
+    vmap : dict
+        A map of each proximal variable id to a dictionary containing that variable `x`,
+        the mean variable parameter `xbar`, and the associated dual parameter `u`.
+    rho : Parameter
+        The step size parameter.
+	"""
 	vmap = {}   # Store consensus variables
 	f = flip_obj(prob).args[0]
 	rho = Parameter(1, 1, value = rho_init, sign = "positive")   # Step size
@@ -166,6 +187,8 @@ def prox_step(prob, rho_init):
 	return prox, vmap, rho
 
 def x_average(prox_res):
+	"""Average the primal variables over the nodes in which they are present.
+	"""
 	xbars = defaultdict(float)
 	xcnts = defaultdict(int)
 	
@@ -186,6 +209,11 @@ def x_average(prox_res):
 	return dict(xbars)
 
 def res_stop(res_ssq, eps = 1e-6):
+	"""Calculate the sum of squared primal/dual residuals.
+	   Determine whether the stopping criterion is satisfied:
+	   ||r^(k)||^2 <= eps*max(\sum_i ||x_i^(k)||^2, \sum_i ||x_bar^(k)||^2) and
+	   ||d^(k)||^2 <= eps*\sum_i ||u_i^(k)||^2
+	"""
 	primal = np.sum([r["primal"] for r in res_ssq])
 	dual = np.sum([r["dual"] for r in res_ssq])
 	
@@ -193,7 +221,9 @@ def res_stop(res_ssq, eps = 1e-6):
 	xbar_ssq = np.sum([r["xbar"] for r in res_ssq])
 	u_ssq = np.sum([r["u"] for r  in res_ssq])
 	
-	stopped = primal <= eps*max(x_ssq, xbar_ssq) and dual <= eps*u_ssq
+	eps_fl = np.finfo(float).eps   # Machine precision.
+	stopped = (primal <= eps*max(x_ssq, xbar_ssq) + eps_fl) and \
+			  (dual <= eps*u_ssq + eps_fl)
 	return primal, dual, stopped
 
 def run_worker(pipe, p, rho_init, *args, **kwargs):
@@ -213,28 +243,48 @@ def run_worker(pipe, p, rho_init, *args, **kwargs):
 	
 	# ADMM loop.
 	while True:
+		# Proximal step for x^(k+1).
 		prox.solve(*args, **kwargs)
 		
-		# Calculate x_bar.
+		# Calculate x_bar^(k+1).
 		xvals = {}
 		for xvar in prox.variables():
 			xvals[xvar.id] = xvar.value
 		pipe.send((prox.status, xvals))
 		xbars, i = pipe.recv()
 		
-		# Update u += rho*(x - x_bar).
+		# Update u^(k+1) += rho^(k)*(x^(k+1) - x_bar^(k+1)).
 		v_flat = {"x": [], "xbar": [], "u": [], "uhat": []}
+		ssq = {"primal": 0, "dual": 0, "x": 0, "xbar": 0, "u": 0}
 		for key in v.keys():
+			# Calculate primal/dual residual^(k+1).
+			if v[key]["x"].value is None:
+				primal = -xbars[key]
+			else:
+				primal = (v[key]["x"] - xbars[key]).value
+			dual = (rho*(v[key]["xbar"] - xbars[key])).value
+			
+			# Set parameter values of x_bar^(k+1) and u^(k+1).
 			xbar_old = v[key]["xbar"].value
 			u_old = v[key]["u"].value
 			
 			v[key]["xbar"].value = xbars[key]
 			v[key]["u"].value += (rho*(v[key]["x"] - v[key]["xbar"])).value
 			
+			# Save stopping rule criteria.
+			ssq["primal"] += np.sum(np.square(primal))
+			ssq["dual"] += np.sum(np.square(dual))
+			if v[key]["x"].value is not None:
+				ssq["x"] += np.sum(np.square(v[key]["x"].value))
+			ssq["xbar"] += np.sum(np.square(v[key]["xbar"].value))
+			ssq["u"] += np.sum(np.square(v[key]["u"].value))
+			
 			# Intermediate variable for step size update.
-			u_hat = u_old + rho*(xbar_old - v[key]["u"])
+			u_hat = u_old + rho*(v[key]["x"] - xbar_old)
 			v_flat["uhat"] += [np.asarray(u_hat.value).reshape(-1)]
+		pipe.send(ssq)
 		
+		# Spectral step size.
 		if spectral and i % Tf == 1:
 			# Collect and flatten variables.
 			for key in v.keys():
@@ -262,6 +312,8 @@ def consensus(p_list, *args, **kwargs):
 	N = len(p_list)   # Number of problems.
 	max_iter = kwargs.pop("max_iter", 100)
 	rho_init = kwargs.pop("rho_init", N*[1.0])
+	eps = kwargs.pop("eps", 1e-6)   # Stopping tolerance.
+	resid = np.zeros((max_iter, 2))
 	
 	# Set up the workers.
 	pipes = []
@@ -282,7 +334,14 @@ def consensus(p_list, *args, **kwargs):
 		# Scatter x_bar.
 		for pipe in pipes:
 			pipe.send((xbars, i))
+		
+		# Calculate normalized residuals.
+		ssq = [pipe.recv() for pipe in pipes]
+		primal, dual, stopped = res_stop(ssq, eps)
+		resid[i,:] = np.array([primal, dual])
+		if stopped:
+			break
 	end = time()
 
 	[p.terminate() for p in procs]
-	return {"xbars": xbars, "solve_time": (end - start)}
+	return {"xbars": xbars, "residuals": resid[:(i+1),:], "solve_time": (end - start)}

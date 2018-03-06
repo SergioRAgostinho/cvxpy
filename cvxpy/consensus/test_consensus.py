@@ -36,7 +36,7 @@ def basic_test():
 	np.random.seed(1)
 	m = 100
 	n = 10
-	max_iter = 10
+	MAX_ITER = 10
 	x = Variable(n)
 	y = Variable(n/2)
 
@@ -55,7 +55,7 @@ def basic_test():
 	
 	# Solve with consensus ADMM.
 	obj_admm = probs.solve(method = "consensus", rho_init = N*[1.0], \
-						   max_iter = max_iter, spectral = True)
+						   max_iter = MAX_ITER, spectral = True)
 	x_admm = [x.value for x in probs.variables()]
 
 	# Solve combined problem.
@@ -70,7 +70,7 @@ def ols_test():
 	N = 2
 	m = N*100
 	n = 10
-	max_iter = 85
+	MAX_ITER = 20
 	x = Variable(n)
 	
 	# Problem data.
@@ -90,7 +90,7 @@ def ols_test():
 	
 	# Solve with consensus ADMM.
 	obj_admm = probs.solve(method = "consensus", rho_init = N*[1.0], \
-						   max_iter = max_iter, spectral = True)
+						   max_iter = MAX_ITER, spectral = True)
 	x_admm = [x.value for x in probs.variables()]
 	
 	# Solve combined problem.
@@ -101,5 +101,45 @@ def ols_test():
 	# Compare results.
 	compare_results(probs, obj_admm, obj_comb, x_admm, x_comb)
 
+def lasso_test():
+	np.random.seed(1)
+	m = 100
+	n = 10
+	MAX_ITER = 10
+	DENSITY = 0.75
+	x = Variable(n)
+	
+	# Problem data.
+	A = np.random.randn(m*n).reshape(m,n)
+	xtrue = np.random.randn(n)
+	idxs = np.random.choice(range(n), int((1-DENSITY)*n), replace = False)
+	for idx in idxs:
+		xtrue[idx] = 0
+	b = A.dot(xtrue) + np.random.randn(m)
+	
+	# List of all problems with objective f_i.
+	p_list = [Problem(Minimize(sum_squares(A*x-b))),
+			  Problem(Minimize(norm(x,1)))]
+	probs = Problems(p_list)
+	N = len(p_list)
+	
+	# Solve with consensus ADMM.
+	obj_admm = probs.solve(method = "consensus", rho_init = N*[1.0], \
+						   max_iter = MAX_ITER, spectral = True)
+	x_admm = [x.value for x in probs.variables()]
+	
+	# Solve combined problem.
+	obj_comb = probs.solve(method = "combined")
+	x_comb = [x.value for x in probs.variables()]
+	
+	# Compare results.
+	compare_results(probs, obj_admm, obj_comb, x_admm, x_comb)
+
+print "Basic Test"
 basic_test()
+
+# print "OLS Test"
 # ols_test()
+
+print "Lasso Test"
+lasso_test()

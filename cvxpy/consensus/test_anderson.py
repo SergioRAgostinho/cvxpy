@@ -26,25 +26,25 @@ from cvxpy.atoms import sum_squares, norm
 from consensus_accel import *
 from anderson import anderson_accel
 
-def run_consensus(pipes, xbars, udicts, max_iters, accel = False):
+def run_consensus(pipes, xbars, udicts, max_iter, accel = False):
 	xids = xbars.keys()
 	uids = [udict.keys() for udict in udicts]
 	xuarr, xshapes, ushapes = dicts_to_arr(xbars, udicts)
 	
 	# Wrapper for saving primal/dual residuals.
-	resid = np.zeros((max_iters, 2))
+	resid = np.zeros((max_iter, 2))
 	def consensus_wrapper(xuarr, i):
 		xuarr, resid[i,:] = consensus_map(xuarr, pipes, xids, uids, xshapes, ushapes, i)
 		return xuarr
 	
 	if accel:
 		# Accelerated ADMM loop.
-		for i in range(max_iters):
+		for i in range(max_iter):
 			# TODO: Allow passing in Anderson acceleration arguments.
 			xuarr = anderson_accel(consensus_wrapper, xuarr, m=5, g_args=(i,))
 	else:
 		# ADMM loop.
-		for i in range(max_iters):
+		for i in range(max_iter):
 			xuarr = consensus_wrapper(xuarr, i)
 	
 	xbars_f, udicts_f = arr_to_dicts(xuarr, xids, uids, xshapes, ushapes)
@@ -68,7 +68,7 @@ def basic_test():
 
 	m = 5
 	x0 = np.array([[-1.0, 1.0]]).T
-	res = anderson_accel(g, x0, m, max_iters=10, rcond=2)
+	res = anderson_accel(g, x0, m, max_iter=10, rcond=2)
 	print(res)   # [-1.17397479  1.37821681]
 
 def consensus_test():

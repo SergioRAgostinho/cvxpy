@@ -45,9 +45,9 @@ def trim_cond(Q, R, Qt, Rt, rcond=np.inf):
 		cond = np.linalg.cond(Q.dot(R))
 	return (Q, R, Qt, Rt)
 
-def anderson_accel(g, x0, m, max_iters=10, rcond=np.inf, g_args=()):
-	if(max_iters < 1):
-		raise ValueError('max_iters must be >= 1')
+def anderson_accel(g, x0, m, max_iter=10, rcond=np.inf, g_args=()):
+	if(max_iter < 1):
+		raise ValueError('max_iter must be >= 1')
 	if(rcond < 1):
 		raise ValueError('rcond must be >= 1')
 	
@@ -63,7 +63,7 @@ def anderson_accel(g, x0, m, max_iters=10, rcond=np.inf, g_args=()):
 	Qt = np.empty((0,n))  # F_d.T = Qt.dot(Rt)
 	Rt = np.empty((n,n))
 	
-	for k in range(1, max_iters+1):
+	for k in range(1, max_iter+1):
 		# Compute data
 		m_k = min(m,k)
 		f_n = g(x_n, *g_args) - x_n

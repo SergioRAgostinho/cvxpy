@@ -94,7 +94,7 @@ def worker_map(pipe, p, rho_init, *args, **kwargs):
 		
 		ssq = {"primal": 0, "dual": 0, "x": 0, "xbar": 0, "u": 0}
 		for key in v.keys():
-			# Calculate primal/dual residual
+			# Calculate primal/dual residual.
 			if v[key]["x"].value is None:
 				primal = -xbars[key]
 			else:

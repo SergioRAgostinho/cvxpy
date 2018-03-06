@@ -47,6 +47,8 @@ class Problems(object):
 		self._problems = problems
 		self._value = None
 		self._status = None
+		self._primal_residual = None
+		self._dual_residual = None
 		self._solver_stats = None
 		
 		self.combined = self._combined()
@@ -72,6 +74,20 @@ class Problems(object):
 		"""list : The list of problems.
 		"""
 		return self._problems
+	
+	@property
+	def primal_residual(self):
+		"""list : The sum of squared primal residuals for each iteration, i.e.
+				  ||r^(k)||^2 where r_i^(k) = x_i^(k) - x_bar^(k).
+		"""
+		return self._primal_residual
+	
+	@property
+	def dual_residual(self):
+		"""list : The sum of squared dual residuals for each iteration, i.e.
+				  ||d^(k)||^2 where d_i^(k) = rho_i^(k)*(x_bar^(k-1) - x_bar^(k)).
+		"""
+		return self._dual_residual
 	
 	def _combined(self):
 		"""Sum list of problems with sign flip if objective is maximization.
@@ -211,6 +227,10 @@ class Problems(object):
 		
 		# Save combined objective.
 		self._value = self.objective.value
+		
+		# Save primal/dual residuals.
+		self._primal_residual = solution["residuals"][:,0]
+		self._dual_residual = solution["residuals"][:,1]
 		
 		# TODO: Handle statuses.
 		self._solver_stats = solution["solve_time"]
