@@ -169,8 +169,8 @@ def ols_test():
 	plot_residuals(range(1,MAX_ITER), resid[1:,:])
 	# plot_residuals(range(1,MAX_ITER), resid[1:,:], resid_aa[1:,:])
 
-print "Basic Test:"
-basic_test()
+# print "Basic Test:"
+# basic_test()
 
 print "Consensus Test:"
 consensus_test()

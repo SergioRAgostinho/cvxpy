@@ -233,4 +233,5 @@ class Problems(object):
 		self._dual_residual = solution["residuals"][:,1]
 		
 		# TODO: Handle statuses.
-		self._solver_stats = solution["solve_time"]
+		self._solver_stats = {"iterations": solution["iterations"],
+							  "solve_time": solution["solve_time"]}

@@ -36,6 +36,7 @@ def inner_prob(f, Q, R, Qt, Rt):
 		Qf = Q.T.dot(f)
 		return solve_triangular(R, Qf, lower = False)
 
+# TODO: at Brendan's suggestion, re-do QR decomposition after certain number of iterations.
 # Trim left columns until condition number < threshold
 def trim_cond(Q, R, Qt, Rt, rcond=np.inf):
 	cond = np.linalg.cond(Q.dot(R))

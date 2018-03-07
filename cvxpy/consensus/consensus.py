@@ -57,7 +57,7 @@ def step_ls(p, d):
 	if 2*mg > sd:
 		return mg
 	else:
-		return (sd - mg)
+		return (sd - mg/2)
 
 def step_cor(p, d):
 	"""Correlation coefficient.
@@ -74,7 +74,7 @@ def step_cor(p, d):
 	float
 	     The correlation between two vectors.
 	"""
-	return np.sum(p*d)/np.sqrt(np.sum(p**2)*np.sum(d**2))
+	return np.sum(p*d)/(np.linalg.norm(p)*np.linalg.norm(d))
 
 def step_safe(rho, a, b, a_cor, b_cor, eps = 0.2):
 	"""Safeguarding rule for spectral step size update.
@@ -253,15 +253,15 @@ def run_worker(pipe, p, rho_init, *args, **kwargs):
 		pipe.send((prox.status, xvals))
 		xbars, i = pipe.recv()
 		
-		# Update u^(k+1) += rho^(k)*(x^(k+1) - x_bar^(k+1)).
+		# Update u^(k+1) += rho^(k)*(x_bar^(k+1) - x^(k+1)).
 		v_flat = {"x": [], "xbar": [], "u": [], "uhat": []}
 		ssq = {"primal": 0, "dual": 0, "x": 0, "xbar": 0, "u": 0}
 		for key in v.keys():
 			# Calculate primal/dual residual^(k+1).
 			if v[key]["x"].value is None:
-				primal = -xbars[key]
+				primal = xbars[key]
 			else:
-				primal = (v[key]["x"] - xbars[key]).value
+				primal = (xbars[key] - v[key]["x"]).value
 			dual = (rho*(v[key]["xbar"] - xbars[key])).value
 			
 			# Set parameter values of x_bar^(k+1) and u^(k+1).
@@ -269,7 +269,7 @@ def run_worker(pipe, p, rho_init, *args, **kwargs):
 			u_old = v[key]["u"].value
 			
 			v[key]["xbar"].value = xbars[key]
-			v[key]["u"].value += (rho*(v[key]["x"] - v[key]["xbar"])).value
+			v[key]["u"].value += (rho*(v[key]["xbar"] - v[key]["x"])).value
 			
 			# Save stopping rule criteria.
 			ssq["primal"] += np.sum(np.square(primal))
@@ -280,7 +280,7 @@ def run_worker(pipe, p, rho_init, *args, **kwargs):
 			ssq["u"] += np.sum(np.square(v[key]["u"].value))
 			
 			# Intermediate variable for step size update.
-			u_hat = u_old + rho*(v[key]["x"] - xbar_old)
+			u_hat = u_old + rho*(xbar_old - v[key]["x"])
 			v_flat["uhat"] += [np.asarray(u_hat.value).reshape(-1)]
 		pipe.send(ssq)
 		
@@ -344,4 +344,4 @@ def consensus(p_list, *args, **kwargs):
 	end = time()
 
 	[p.terminate() for p in procs]
-	return {"xbars": xbars, "residuals": resid[:(i+1),:], "solve_time": (end - start)}
+	return {"xbars": xbars, "residuals": resid[:(i+1),:], "iterations": i+1, "solve_time": (end - start)}

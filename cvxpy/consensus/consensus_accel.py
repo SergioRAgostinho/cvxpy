@@ -96,9 +96,9 @@ def worker_map(pipe, p, rho_init, *args, **kwargs):
 		for key in v.keys():
 			# Calculate primal/dual residual.
 			if v[key]["x"].value is None:
-				primal = -xbars[key]
+				primal = xbars[key]
 			else:
-				primal = (v[key]["x"] - xbars[key]).value
+				primal = (xbars[key] - v[key]["x"]).value
 			dual = (rho*(v[key]["xbar"] - xbars[key])).value
 			
 			# Set parameter values of x_bar^(k) and u^(k).
@@ -122,9 +122,9 @@ def worker_map(pipe, p, rho_init, *args, **kwargs):
 		pipe.send((prox.status, xvals))
 		xbars = pipe.recv()
 		
-		# Update u^(k+1) += rho*(x^(k+1) - x_bar^(k+1)).
+		# Update u^(k+1) += rho*(x_bar^(k+1) - x^(k+1)).
 		for key in v.keys():
-			uvals[key] += rho.value*(v[key]["x"].value - xbars[key])
+			uvals[key] += rho.value*(xbars[key] - v[key]["x"].value)
 			
 		# Return u^(k+1) and step size.
 		pipe.send(uvals)
