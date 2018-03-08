@@ -18,6 +18,7 @@ along with CVXPY.  If not, see <http://www.gnu.org/licenses/>.
 """
 
 import numpy as np
+import matplotlib.pyplot as plt
 import cvxpy.utilities as u
 from cvxpy.problems.problem import Problem, Minimize
 from collections import defaultdict
@@ -233,5 +234,19 @@ class Problems(object):
 		self._dual_residual = solution["residuals"][:,1]
 		
 		# TODO: Handle statuses.
-		self._solver_stats = {"iterations": solution["iterations"],
+		self._solver_stats = {"num_iters": solution["num_iters"],
 							  "solve_time": solution["solve_time"]}
+	
+	def plot_residuals(self):
+		"""Plot the sum of squared primal/dual residuals over all iterations.
+		"""
+		if self._solver_stats is None:
+			raise ValueError("Solver stats is empty. Nothing to plot.")
+		iters = range(self._solver_stats["num_iters"])
+		resid = np.column_stack((self._primal_residual, self._dual_residual))
+		
+		plt_resd = plt.plot(iters, resid, label = ["Primal", "Dual"])
+		plt.legend(plt_resd, ["Primal", "Dual"])
+		plt.xlabel("Iteration")
+		plt.ylabel("Residual")
+		plt.show()

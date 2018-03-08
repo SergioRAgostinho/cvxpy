@@ -30,7 +30,7 @@ def compare_results(probs, obj_admm, obj_comb, x_admm, x_comb):
 		print "MSE: ", np.mean(np.square(x_admm[i] - x_comb[i])), "\n"
 	print "ADMM Objective: %f" % obj_admm
 	print "Base Objective: %f" % obj_comb
-	print "Iterations: %d" % probs.solver_stats["iterations"]
+	print "Iterations: %d" % probs.solver_stats["num_iters"]
 	print "Elapsed Time: %f" % probs.solver_stats["solve_time"]
 
 def basic_test():
@@ -71,7 +71,7 @@ def ols_test():
 	N = 2
 	m = N*1000
 	n = 10
-	MAX_ITER = 100
+	MAX_ITER = 10
 	x = Variable(n)
 	
 	# Problem data.
@@ -90,9 +90,10 @@ def ols_test():
 	probs.pretty_vars()
 	
 	# Solve with consensus ADMM.
-	obj_admm = probs.solve(method = "consensus", rho_init = N*[0.5], \
+	obj_admm = probs.solve(method = "consensus", rho_init = N*[0.05], \
 						   max_iter = MAX_ITER, spectral = False)
 	x_admm = [x.value for x in probs.variables()]
+	probs.plot_residuals()
 	
 	# Solve combined problem.
 	# obj_comb = Problem(Minimize(sum_squares(A*x-b))).solve()
@@ -104,9 +105,9 @@ def ols_test():
 
 def lasso_test():
 	np.random.seed(1)
-	m = 1000
+	m = 100
 	n = 10
-	MAX_ITER = 10
+	MAX_ITER = 100
 	DENSITY = 0.75
 	x = Variable(n)
 	
@@ -125,9 +126,10 @@ def lasso_test():
 	N = len(p_list)
 	
 	# Solve with consensus ADMM.
-	obj_admm = probs.solve(method = "consensus", rho_init = N*[1.0], \
-						   max_iter = MAX_ITER, spectral = True)
+	obj_admm = probs.solve(method = "consensus", rho_init = N*[0.5], \
+						   max_iter = MAX_ITER, spectral = False)
 	x_admm = [x.value for x in probs.variables()]
+	# probs.plot_residuals()
 	
 	# Solve combined problem.
 	obj_comb = probs.solve(method = "combined")

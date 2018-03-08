@@ -200,7 +200,7 @@ def x_average(prox_res):
 		# Sum up x values.
 		for key, value in xvals.items():
 			xbars[key] += value
-			++xcnts[key]
+			xcnts[key] = xcnts[key] + 1
 	
 	# Divide by total count.
 	for key in xbars.keys():
@@ -208,7 +208,7 @@ def x_average(prox_res):
 			xbars[key] /= xcnts[key]
 	return dict(xbars)
 
-def res_stop(res_ssq, eps = 1e-6):
+def res_stop(res_ssq, eps = 1e-4):
 	"""Calculate the sum of squared primal/dual residuals.
 	   Determine whether the stopping criterion is satisfied:
 	   ||r^(k)||^2 <= eps*max(\sum_i ||x_i^(k)||^2, \sum_i ||x_bar^(k)||^2) and
@@ -344,4 +344,4 @@ def consensus(p_list, *args, **kwargs):
 	end = time()
 
 	[p.terminate() for p in procs]
-	return {"xbars": xbars, "residuals": resid[:(i+1),:], "iterations": i+1, "solve_time": (end - start)}
+	return {"xbars": xbars, "residuals": resid[:(i+1),:], "num_iters": i+1, "solve_time": (end - start)}

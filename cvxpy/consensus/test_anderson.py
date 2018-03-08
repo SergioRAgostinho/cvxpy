@@ -138,7 +138,7 @@ def ols_test():
 	p_list = []
 	for A_sub, b_sub in zip(A_split, b_split):
 		p_list += [Problem(Minimize(sum_squares(A_sub*x-b_sub)))]
-	rho_init = N*[0.1]
+	rho_init = N*[0.5]
 	
 	# Set up the workers.
 	pipes = []
@@ -172,8 +172,8 @@ def ols_test():
 # print "Basic Test:"
 # basic_test()
 
-print "Consensus Test:"
-consensus_test()
+# print "Consensus Test:"
+# consensus_test()
 
-# print "OLS Test:"
-# ols_test()
+print "OLS Test:"
+ols_test()
