@@ -18,7 +18,7 @@ along with CVXPY.  If not, see <http://www.gnu.org/licenses/>.
 """
 
 import numpy as np
-from cvxpy import Variable, Problem, Minimize
+from cvxpy import Variable, Parameter, Problem, Minimize
 from cvxpy.atoms import *
 from problems import Problems
 
@@ -71,7 +71,7 @@ def ols_test():
 	N = 2
 	m = N*1000
 	n = 10
-	MAX_ITER = 10
+	MAX_ITER = 100
 	x = Variable(n)
 	
 	# Problem data.
@@ -90,10 +90,10 @@ def ols_test():
 	probs.pretty_vars()
 	
 	# Solve with consensus ADMM.
-	obj_admm = probs.solve(method = "consensus", rho_init = N*[0.05], \
-						   max_iter = MAX_ITER, spectral = False)
+	obj_admm = probs.solve(method = "consensus", rho_init = N*[0.5], \
+						   max_iter = MAX_ITER, spectral = True)
 	x_admm = [x.value for x in probs.variables()]
-	probs.plot_residuals()
+	# probs.plot_residuals()
 	
 	# Solve combined problem.
 	# obj_comb = Problem(Minimize(sum_squares(A*x-b))).solve()
@@ -126,7 +126,7 @@ def lasso_test():
 	N = len(p_list)
 	
 	# Solve with consensus ADMM.
-	obj_admm = probs.solve(method = "consensus", rho_init = N*[0.5], \
+	obj_admm = probs.solve(method = "consensus", rho_init = N*[1.0], \
 						   max_iter = MAX_ITER, spectral = False)
 	x_admm = [x.value for x in probs.variables()]
 	# probs.plot_residuals()
@@ -138,11 +138,69 @@ def lasso_test():
 	# Compare results.
 	compare_results(probs, obj_admm, obj_comb, x_admm, x_comb)
 
+def test_logistic():
+	# Construct Z given X.
+	def pairs(Z):
+		m, n = Z.shape
+		k = n*(n+1)//2
+		X = np.zeros((m,k))
+		count = 0
+		for i in range(n):
+			for j in range(i,n):
+				X[:,count] = Z[:,i]*Z[:,j]
+				count += 1
+		return X
+		
+	np.random.seed(1)
+	n = 10
+	k = n*(n+1)//2
+	m = 200
+	sigma = 1.9
+	DENSITY = 1.0
+	theta_true = np.random.randn(n,1)
+	idxs = np.random.choice(range(n), int((1-DENSITY)*n), replace=False)
+	for idx in idxs:
+		beta_true[idx] = 0
+
+	Z = np.random.binomial(1, 0.5, size=(m,n))
+	Y = np.sign(Z.dot(theta_true) + np.random.normal(0,sigma,size=(m,1)))
+	X = pairs(Z)
+	X = np.hstack([X, np.ones((m,1))])
+	
+	# Form model fitting problem with logistic loss and L1 regularization.
+	theta = Variable(k+1)
+	lambd = 1.0
+	MAX_ITER = 100
+	loss = 0
+	for i in range(m):
+		loss += log_sum_exp(vstack(0, -Y[i]*X[i,:].T*theta))
+	reg = norm(theta[:k], 1)
+	p_list = [Problem(Minimize(loss/m)), Problem(Minimize(lambd*reg))]
+	probs = Problems(p_list)
+	N = len(p_list)
+	
+	# Solve with consensus ADMM.
+	obj_admm = probs.solve(method = "consensus", rho_init = N*[0.5], \
+						   max_iter = MAX_ITER, spectral = True)
+	x_admm = [x.value for x in probs.variables()]
+	probs.plot_residuals()
+	
+	# Solve combined problem.
+	obj_comb = probs.solve(method = "combined")
+	x_comb = [x.value for x in probs.variables()]
+	
+	# Compare results.
+	compare_results(probs, obj_admm, obj_comb, x_admm, x_comb)
+	
+
 # print "Basic Test"
 # basic_test()
 
-print "OLS Test"
-ols_test()
+# print "OLS Test"
+# ols_test()
 
 # print "Lasso Test"
 # lasso_test()
+
+print "Logistic + L1 Regularization"
+test_logistic()

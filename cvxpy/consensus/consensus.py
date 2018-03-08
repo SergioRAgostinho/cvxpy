@@ -200,7 +200,7 @@ def x_average(prox_res):
 		# Sum up x values.
 		for key, value in xvals.items():
 			xbars[key] += value
-			xcnts[key] = xcnts[key] + 1
+			xcnts[key] += 1
 	
 	# Divide by total count.
 	for key in xbars.keys():

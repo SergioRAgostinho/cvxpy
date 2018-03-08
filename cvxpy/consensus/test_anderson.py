@@ -169,11 +169,65 @@ def ols_test():
 	plot_residuals(range(1,MAX_ITER), resid[1:,:])
 	# plot_residuals(range(1,MAX_ITER), resid[1:,:], resid_aa[1:,:])
 
+def lasso_test():
+	np.random.seed(1)
+	m = 100
+	n = 10
+	MAX_ITER = 100
+	DENSITY = 0.75
+	x = Variable(n)
+	
+	# Problem data.
+	A = np.random.randn(m*n).reshape(m,n)
+	xtrue = np.random.randn(n)
+	idxs = np.random.choice(range(n), int((1-DENSITY)*n), replace = False)
+	for idx in idxs:
+		xtrue[idx] = 0
+	b = A.dot(xtrue) + np.random.randn(m)
+	
+	# List of all problems with objective f_i.
+	p_list = [Problem(Minimize(sum_squares(A*x-b))),
+			  Problem(Minimize(norm(x,1)))]
+	N = len(p_list)
+	rho_init = N*[1.0]
+	
+	# Set up the workers.
+	pipes = []
+	procs = []
+	for i in range(N):
+		local, remote = Pipe()
+		pipes += [local]
+		procs += [Process(target = worker_map, args = (remote, p_list[i], rho_init[i]))]
+		procs[-1].start()
+	
+	# Initial guesses.
+	xbars = {x.id: np.zeros(x.size)}
+	udicts = N*[{x.id: np.zeros(x.size)}]
+	
+	xbars, udicts, resid = run_consensus(pipes, xbars, udicts, MAX_ITER, accel = False)
+	# xbars_aa, udicts_aa, resid_aa = run_consensus(pipes, xbars, udicts, MAX_ITER, accel = True)
+	[p.terminate() for p in procs]
+	
+	# Print variables results.
+	mse = 0
+	for xid in xbars.keys():
+		print "Variable %d:\n" % xid, xbars[xid]
+		# print "Accel Variable %d:\n" %xid, xbars_aa[xid]
+		# mse += np.sum(np.square(xbars[xid] - xbars_aa[xid]))
+	# print "Total MSE: %f" % mse
+	
+	# Plot residuals.
+	plot_residuals(range(1,MAX_ITER), resid[1:,:])
+	# plot_residuals(range(1,MAX_ITER), resid[1:,:], resid_aa[1:,:])
+
 # print "Basic Test:"
 # basic_test()
 
 # print "Consensus Test:"
 # consensus_test()
 
-print "OLS Test:"
-ols_test()
+# print "OLS Test:"
+# ols_test()
+
+print "Lasso Test:"
+lasso_test()

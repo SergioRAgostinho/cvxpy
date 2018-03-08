@@ -28,7 +28,6 @@ from anderson import anderson_accel
 import numpy as np
 from collections import defaultdict
 
-# TODO: Change xshapes, ushapes into dicts and drop xids, uids.
 def dicts_to_arr(xbars, udicts):
 	# Keep shape information.
 	xshapes = [xbar.shape for xbar in xbars.values()]
@@ -139,7 +138,7 @@ def consensus_map(xuarr, pipes, xids, uids, xshapes, ushapes, cur_iter):
 	
 	# Calculate normalized residuals.
 	ssq = [pipe.recv() for pipe in pipes]
-	primal, dual, stopped = res_stop(ssq)
+	primal, dual, stopped = res_stop(ssq)   # TODO: Kick stopped up the stack to terminate Anderson.
 	
 	# Gather and average x^(k+1).
 	prox_res = [pipe.recv() for pipe in pipes]
