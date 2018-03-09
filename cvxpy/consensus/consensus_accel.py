@@ -138,7 +138,7 @@ def consensus_map(xuarr, pipes, xids, uids, xshapes, ushapes, cur_iter):
 	
 	# Calculate normalized residuals.
 	ssq = [pipe.recv() for pipe in pipes]
-	primal, dual, stopped = res_stop(ssq)   # TODO: Kick stopped up the stack to terminate Anderson.
+	primal, dual, stopped = res_stop(ssq)
 	
 	# Gather and average x^(k+1).
 	prox_res = [pipe.recv() for pipe in pipes]
@@ -151,4 +151,5 @@ def consensus_map(xuarr, pipes, xids, uids, xshapes, ushapes, cur_iter):
 	# Gather updated u^(k+1).
 	udicts_n = [pipe.recv() for pipe in pipes]
 	xuarr_n, xshapes, ushapes = dicts_to_arr(xbars_n, udicts_n)
-	return xuarr_n, np.array([primal, dual])
+	rdict = {"residuals": np.array([primal, dual]), "stopped": stopped}
+	return xuarr_n, rdict

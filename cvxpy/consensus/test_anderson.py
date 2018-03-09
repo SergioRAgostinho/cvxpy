@@ -34,33 +34,39 @@ def run_consensus(pipes, xbars, udicts, max_iter, accel = False):
 	# Wrapper for saving primal/dual residuals.
 	resid = np.zeros((max_iter, 2))
 	def consensus_wrapper(xuarr, i):
-		xuarr, resid[i,:] = consensus_map(xuarr, pipes, xids, uids, xshapes, ushapes, i)
-		return xuarr
+		return consensus_map(xuarr, pipes, xids, uids, xshapes, ushapes, i)
 	
 	if accel:
-		# Accelerated ADMM loop.
-		for i in range(max_iter):
-			# TODO: Allow passing in Anderson acceleration arguments.
-			xuarr = anderson_accel(consensus_wrapper, xuarr, m=5, g_args=(i,))
+		# TODO: Allow user to pass in Anderson acceleration arguments.
+		def fixed_map(xuarr, i):
+			return anderson_accel(consensus_wrapper, xuarr, m = 2, g_args=(i,), stopping = True)
 	else:
-		# ADMM loop.
-		for i in range(max_iter):
-			xuarr = consensus_wrapper(xuarr, i)
+		def fixed_map(xuarr, i):
+			return consensus_wrapper(xuarr, i)
+	
+	for i in range(max_iter):
+		xuarr, rdict = fixed_map(xuarr, i)
+		resid[i,:] = rdict["residuals"]
+		if i > 0 and rdict["stopped"]:
+			break
 	
 	xbars_f, udicts_f = arr_to_dicts(xuarr, xids, uids, xshapes, ushapes)
-	return xbars_f, udicts_f, resid
+	return xbars_f, udicts_f, resid[:(i+1),:]
 
 def plot_residuals(resid, resid_accel = None):
 	iters = range(1, resid.shape[0] + 1)
-	plt_resd = plt.plot(iters, resid, label = ["Primal", "Dual"])
+	plt.plot(iters, resid[:,0], label = "Primal")
+	plt.plot(iters, resid[:,1], label = "Dual")
 	if resid_accel is not None:
-		plt_accel = plt.plot(iters, resid_accel, '--', label = ["PrimalAcc", "DualAcc"])
-	plt.legend(plt_resd, ["Primal", "Dual"])
+		iters_accel = range(1, resid_accel.shape[0] + 1)
+		plt.plot(iters_accel, resid_accel[:,0], '--', label = "AA Primal")
+		plt.plot(iters_accel, resid_accel[:,1], '--', label = "AA Dual")
+	plt.legend()
 	plt.xlabel("Iteration")
 	plt.ylabel("Residual")
 	plt.show()
 
-def basic_test():
+def test_basic():
 	def g(x):
 		x = x[:,0]
 		y0 = (2*x[0] + x[0]**2 - x[1])/2.0
@@ -72,7 +78,7 @@ def basic_test():
 	res = anderson_accel(g, x0, m, max_iter=10, rcond=2)
 	print(res)   # [-1.17397479  1.37821681]
 
-def consensus_test():
+def test_consensus():
 	np.random.seed(1)
 	m = 100
 	n = 10
@@ -120,7 +126,7 @@ def consensus_test():
 	# Plot residuals.
 	plot_residuals(resid[1:,:], resid_aa[1:,:])
 
-def ols_test():
+def test_ols():
 	np.random.seed(1)
 	N = 2
 	m = N*100
@@ -170,11 +176,11 @@ def ols_test():
 	plot_residuals(resid[1:,:])
 	# plot_residuals(resid[1:,:], resid_aa[1:,:])
 
-def lasso_test():
+def test_lasso():
 	np.random.seed(1)
 	m = 100
 	n = 10
-	MAX_ITER = 100
+	MAX_ITER = 20
 	DENSITY = 0.75
 	x = Variable(n)
 	
@@ -206,29 +212,30 @@ def lasso_test():
 	udicts = N*[{x.id: np.zeros(x.size)}]
 	
 	xbars, udicts, resid = run_consensus(pipes, xbars, udicts, MAX_ITER, accel = False)
-	# xbars_aa, udicts_aa, resid_aa = run_consensus(pipes, xbars, udicts, MAX_ITER, accel = True)
+	xbars_aa, udicts_aa, resid_aa = run_consensus(pipes, xbars, udicts, MAX_ITER, accel = True)
 	[p.terminate() for p in procs]
 	
 	# Print variables results.
 	mse = 0
 	for xid in xbars.keys():
 		print "Variable %d:\n" % xid, xbars[xid]
-		# print "Accel Variable %d:\n" %xid, xbars_aa[xid]
-		# mse += np.sum(np.square(xbars[xid] - xbars_aa[xid]))
-	# print "Total MSE: %f" % mse
+		print "AA Variable %d:\n" % xid, xbars_aa[xid]
+		mse += np.sum(np.square(xbars[xid] - xbars_aa[xid]))
+	print "Total MSE: %f" % mse
+	print "Iterations: %d" % resid.shape[0]
+	print "AA Iterations: %d" % resid_aa.shape[0]
 	
 	# Plot residuals.
-	plot_residuals(resid[1:,:])
-	# plot_residuals(resid[1:,:], resid_aa[1:,:])
+	plot_residuals(resid[1:,:], resid_aa[1:,:])
 
-# print "Basic Test:"
-# basic_test()
+print "Basic Test:"
+test_basic()
 
 # print "Consensus Test:"
-# consensus_test()
+# test_consensus()
 
 # print "OLS Test:"
-# ols_test()
+# test_ols()
 
 print "Lasso Test:"
-lasso_test()
+test_lasso()

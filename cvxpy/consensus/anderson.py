@@ -46,7 +46,7 @@ def trim_cond(Q, R, Qt, Rt, rcond=np.inf):
 	return (Q, R, Qt, Rt)
 
 # TODO: At Brendan's suggestion, re-do QR decomposition after certain number of iterations.
-def anderson_accel(g, x0, m, max_iter=10, rcond=np.inf, g_args=()):
+def anderson_accel(g, x0, m, max_iter=10, rcond=np.inf, g_args=(), stopping=False):
 	if(max_iter < 1):
 		raise ValueError('max_iter must be >= 1')
 	if(rcond < 1):
@@ -54,7 +54,12 @@ def anderson_accel(g, x0, m, max_iter=10, rcond=np.inf, g_args=()):
 	
 	# Initialize
 	x_o = x0
-	x_n = g(x0, *g_args)
+	if stopping:
+		x_n, rdict = g(x0, *g_args)
+		if rdict["stopped"]:
+			return x0, rdict
+	else:
+		x_n = g(x0, *g_args)
 	f_o = x_n-x0
 	
 	n = x0.shape[0]
@@ -67,7 +72,13 @@ def anderson_accel(g, x0, m, max_iter=10, rcond=np.inf, g_args=()):
 	for k in range(1, max_iter+1):
 		# Compute data
 		m_k = min(m,k)
-		f_n = g(x_n, *g_args) - x_n
+		if stopping:
+			gx_n, rdict = g(x_n, *g_args)
+			if rdict["stopped"]:
+				return x_n, rdict
+			f_n = gx_n - x_n
+		else:
+			f_n = g(x_n, *g_args) - x_n
 		
 		# Update difference matrices
 		if k > m_k:
@@ -95,4 +106,9 @@ def anderson_accel(g, x0, m, max_iter=10, rcond=np.inf, g_args=()):
 		x_o = x_n
 		f_o = f_n
 		x_n = x_n + f_n - (X_d + Q.dot(R)).dot(gam)
-	return x_n
+	
+	if stopping:
+		rdict = g(x_n, *g_args)[1]
+		return x_n, rdict
+	else:
+		return x_n

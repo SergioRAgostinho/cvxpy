@@ -43,7 +43,7 @@ def plot_residuals(primal, dual):
 	plt.ylabel("Residual")
 	plt.show()
 
-def basic_test():
+def test_basic():
 	np.random.seed(1)
 	m = 100
 	n = 10
@@ -77,7 +77,7 @@ def basic_test():
 	# Compare results.
 	compare_results(probs, obj_admm, obj_comb, x_admm, x_comb)
 
-def ols_test():
+def test_ols():
 	np.random.seed(1)
 	N = 2
 	m = N*1000
@@ -114,7 +114,7 @@ def ols_test():
 	# Compare results.
 	compare_results(probs, obj_admm, obj_comb, x_admm, x_comb)
 
-def lasso_test():
+def test_lasso():
 	np.random.seed(1)
 	m = 100
 	n = 10
@@ -205,13 +205,13 @@ def test_logistic():
 	
 
 # print "Basic Test"
-# basic_test()
+# test_basic()
 
 # print "OLS Test"
-# ols_test()
+# test_ols()
 
 # print "Lasso Test"
-# lasso_test()
+# test_lasso()
 
 print "Logistic + L1 Regularization"
 test_logistic()
