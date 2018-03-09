@@ -18,6 +18,7 @@ along with CVXPY.  If not, see <http://www.gnu.org/licenses/>.
 """
 
 import numpy as np
+import matplotlib.pyplot as plt
 from cvxpy import Variable, Parameter, Problem, Minimize
 from cvxpy.atoms import *
 from problems import Problems
@@ -32,6 +33,15 @@ def compare_results(probs, obj_admm, obj_comb, x_admm, x_comb):
 	print "Base Objective: %f" % obj_comb
 	print "Iterations: %d" % probs.solver_stats["num_iters"]
 	print "Elapsed Time: %f" % probs.solver_stats["solve_time"]
+
+def plot_residuals(primal, dual):
+	resid = np.column_stack((primal, dual))
+	iters = range(1, resid.shape[0] + 1)
+	plt_resd = plt.plot(iters, resid, label = ["Primal", "Dual"])
+	plt.legend(plt_resd, ["Primal", "Dual"])
+	plt.xlabel("Iteration")
+	plt.ylabel("Residual")
+	plt.show()
 
 def basic_test():
 	np.random.seed(1)
@@ -58,6 +68,7 @@ def basic_test():
 	obj_admm = probs.solve(method = "consensus", rho_init = N*[1.0], \
 						   max_iter = MAX_ITER, spectral = True)
 	x_admm = [x.value for x in probs.variables()]
+	# plot_residuals(probs._primal_residual, probs._dual_residual)
 
 	# Solve combined problem.
 	obj_comb = probs.solve(method = "combined")
@@ -158,7 +169,7 @@ def test_logistic():
 	sigma = 1.9
 	DENSITY = 1.0
 	theta_true = np.random.randn(n,1)
-	idxs = np.random.choice(range(n), int((1-DENSITY)*n), replace=False)
+	idxs = np.random.choice(range(n), int((1-DENSITY)*n), replace = False)
 	for idx in idxs:
 		beta_true[idx] = 0
 
@@ -170,7 +181,7 @@ def test_logistic():
 	# Form model fitting problem with logistic loss and L1 regularization.
 	theta = Variable(k+1)
 	lambd = 1.0
-	MAX_ITER = 100
+	MAX_ITER = 55
 	loss = 0
 	for i in range(m):
 		loss += log_sum_exp(vstack(0, -Y[i]*X[i,:].T*theta))

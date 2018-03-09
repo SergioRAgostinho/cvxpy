@@ -132,8 +132,9 @@ def step_spec(rho, k, dx, dxbar, du, duhat, eps = 0.2, C = 1e10):
         The spectral step size for the next iteration.
 	"""
 	# Use old step size if unable to solve LS problem/correlations.
-	if sum(dx**2) == 0 or sum(dxbar**2) == 0 or \
-	   sum(du**2) == 0 or sum(duhat**2) == 0:
+	eps_fl = np.finfo(float).eps   # Machine precision.
+	if np.sum(dx**2) <= eps_fl or np.sum(dxbar**2) <= eps_fl or \
+	   np.sum(du**2) <= eps_fl or np.sum(duhat**2) <= eps_fl:
 		   return rho
 
 	# Compute spectral step size.
@@ -279,13 +280,13 @@ def run_worker(pipe, p, rho_init, *args, **kwargs):
 			ssq["xbar"] += np.sum(np.square(v[key]["xbar"].value))
 			ssq["u"] += np.sum(np.square(v[key]["u"].value))
 			
-			# Intermediate variable for step size update.
+			# Calculate u_hat^(k+1) for step size update.
 			u_hat = u_old + rho*(xbar_old - v[key]["x"])
 			v_flat["uhat"] += [np.asarray(u_hat.value).reshape(-1)]
 		pipe.send(ssq)
 		
 		# Spectral step size.
-		if spectral and i % Tf == 1:
+		if spectral and i % Tf == 1:	
 			# Collect and flatten variables.
 			for key in v.keys():
 				v_flat["x"] += [np.asarray(v[key]["x"].value).reshape(-1)]

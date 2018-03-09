@@ -50,7 +50,8 @@ def run_consensus(pipes, xbars, udicts, max_iter, accel = False):
 	xbars_f, udicts_f = arr_to_dicts(xuarr, xids, uids, xshapes, ushapes)
 	return xbars_f, udicts_f, resid
 
-def plot_residuals(iters, resid, resid_accel = None):
+def plot_residuals(resid, resid_accel = None):
+	iters = range(1, resid.shape[0] + 1)
 	plt_resd = plt.plot(iters, resid, label = ["Primal", "Dual"])
 	if resid_accel is not None:
 		plt_accel = plt.plot(iters, resid_accel, '--', label = ["PrimalAcc", "DualAcc"])
@@ -117,7 +118,7 @@ def consensus_test():
 	print "Total MSE: %f" % mse
 	
 	# Plot residuals.
-	plot_residuals(range(1,MAX_ITER), resid[1:,:], resid_aa[1:,:])
+	plot_residuals(resid[1:,:], resid_aa[1:,:])
 
 def ols_test():
 	np.random.seed(1)
@@ -166,8 +167,8 @@ def ols_test():
 	# print "Total MSE: %f" % mse
 	
 	# Plot residuals.
-	plot_residuals(range(1,MAX_ITER), resid[1:,:])
-	# plot_residuals(range(1,MAX_ITER), resid[1:,:], resid_aa[1:,:])
+	plot_residuals(resid[1:,:])
+	# plot_residuals(resid[1:,:], resid_aa[1:,:])
 
 def lasso_test():
 	np.random.seed(1)
@@ -217,8 +218,8 @@ def lasso_test():
 	# print "Total MSE: %f" % mse
 	
 	# Plot residuals.
-	plot_residuals(range(1,MAX_ITER), resid[1:,:])
-	# plot_residuals(range(1,MAX_ITER), resid[1:,:], resid_aa[1:,:])
+	plot_residuals(resid[1:,:])
+	# plot_residuals(resid[1:,:], resid_aa[1:,:])
 
 # print "Basic Test:"
 # basic_test()
