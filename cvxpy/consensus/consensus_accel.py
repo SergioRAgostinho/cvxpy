@@ -26,6 +26,7 @@ from consensus import prox_step, x_average, res_stop
 from anderson import anderson_accel
 
 import numpy as np
+import warnings
 from collections import defaultdict
 
 def dicts_to_arr(xbars, udicts):
@@ -114,7 +115,10 @@ def worker_map(pipe, p, rho_init, *args, **kwargs):
 		pipe.send(ssq)
 		
 		# Proximal step for x^(k+1) with x_bar^(k) and u^(k).
+		# v_copy = {key: {key_s: val_s.value for key_s, val_s in val.items()} for key, val in v.items()}
 		prox.solve(*args, **kwargs)
+		if prox.status == s.OPTIMAL_INACCURATE:
+			warnings.warn("Proximal step may be inaccurate.")
 		
 		# Calcuate x_bar^(k+1).
 		xvals = {k: np.asarray(d["x"].value) for k,d in v.items()}

@@ -190,24 +190,18 @@ def prox_step(prob, rho_init):
 def x_average(prox_res):
 	"""Average the primal variables over the nodes in which they are present.
 	"""
-	xbars = defaultdict(float)
-	xcnts = defaultdict(int)
+	xmerge = defaultdict(list)
 	
 	for status, xvals in prox_res:
 		# Check if proximal step converged.
 		if status in s.INF_OR_UNB:
 			raise RuntimeError("Proximal problem is infeasible or unbounded")
 		
-		# Sum up x values.
+		# Merge dictionary of x values
 		for key, value in xvals.items():
-			xbars[key] += value
-			xcnts[key] += 1
+			xmerge[key].append(value)
 	
-	# Divide by total count.
-	for key in xbars.keys():
-		if xcnts[key] != 0:
-			xbars[key] /= xcnts[key]
-	return dict(xbars)
+	return {key: np.average(np.array(xlist), axis = 0) for key, xlist in xmerge.items()}
 
 def res_stop(res_ssq, eps = 1e-4):
 	"""Calculate the sum of squared primal/dual residuals.

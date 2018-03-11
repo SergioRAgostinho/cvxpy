@@ -26,24 +26,23 @@ from cvxpy.atoms import sum_squares, norm
 from consensus_accel import *
 from anderson import anderson_accel
 
-def run_consensus(pipes, xbars, udicts, max_iter, accel = False):
+def run_consensus(pipes, xbars, udicts, max_iter, accel = False, aa_args = {"m": 5, "max_iter": 10}):
 	xids = xbars.keys()
 	uids = [udict.keys() for udict in udicts]
 	xuarr, xshapes, ushapes = dicts_to_arr(xbars, udicts)
 	
-	# Wrapper for saving primal/dual residuals.
-	resid = np.zeros((max_iter, 2))
-	def consensus_wrapper(xuarr, i):
-		return consensus_map(xuarr, pipes, xids, uids, xshapes, ushapes, i)
-	
 	if accel:
-		# TODO: Allow user to pass in Anderson acceleration arguments.
+		stopping = aa_args.pop("stopping", True)
+		g_args = aa_args.pop("g_args", ())   # consensus_map arguments
+		g_args += (pipes, xids, uids, xshapes, ushapes)
 		def fixed_map(xuarr, i):
-			return anderson_accel(consensus_wrapper, xuarr, m = 2, g_args=(i,), stopping = True)
+			return anderson_accel(consensus_map, xuarr, g_args=g_args + (i,), stopping=stopping, **aa_args)
 	else:
 		def fixed_map(xuarr, i):
-			return consensus_wrapper(xuarr, i)
+			return consensus_map(xuarr, pipes, xids, uids, xshapes, ushapes, i)
 	
+	# Fixed point iterations
+	resid = np.zeros((max_iter, 2))
 	for i in range(max_iter):
 		xuarr, rdict = fixed_map(xuarr, i)
 		resid[i,:] = rdict["residuals"]
@@ -178,9 +177,9 @@ def test_ols():
 
 def test_lasso():
 	np.random.seed(1)
-	m = 100
+	m = 1000
 	n = 10
-	MAX_ITER = 20
+	MAX_ITER = 30
 	DENSITY = 0.75
 	x = Variable(n)
 	
@@ -212,7 +211,8 @@ def test_lasso():
 	udicts = N*[{x.id: np.zeros(x.size)}]
 	
 	xbars, udicts, resid = run_consensus(pipes, xbars, udicts, MAX_ITER, accel = False)
-	xbars_aa, udicts_aa, resid_aa = run_consensus(pipes, xbars, udicts, MAX_ITER, accel = True)
+	xbars_aa, udicts_aa, resid_aa = run_consensus(pipes, xbars, udicts, MAX_ITER, accel = True, 
+												  aa_args = {"m": 2, "max_iter": 10})
 	[p.terminate() for p in procs]
 	
 	# Print variables results.
@@ -226,6 +226,7 @@ def test_lasso():
 	print "AA Iterations: %d" % resid_aa.shape[0]
 	
 	# Plot residuals.
+	# plot_residuals(resid[1:,:])
 	plot_residuals(resid[1:,:], resid_aa[1:,:])
 
 print "Basic Test:"
